@@ -1,0 +1,10 @@
+node_modules/
+.tmp/
+dist/
+*.log
+
+# 运行时文件（含本机项目路径，别提交）
+项目登记.json
+运行记录.json
+运行结果.json
+主题设置.json

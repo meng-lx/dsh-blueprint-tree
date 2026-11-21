@@ -1,0 +1,14 @@
+# dsh-blueprint-tree bundle patch
+#
+# 本包的 `dsh.bundle.patch` 层：正式安装（写进 profile 的 `dsh.profile.bundles`）
+# 时，profile 启动会把下面这条 insert 合并进 cordis 树，从而挂载本插件的 Host 半边。
+#
+# 行的 `name` 必须等于包名 —— 客户端模块注册表按包名对上它的 loader 条目
+# （浏览器 UI 由 package.json 的 `dsh.client` 段声明）。
+#
+# ⚠ 改完这个文件（或本包任何源码）都要**重启 DSH Desktop** 才生效：
+#   Desktop 的 Host 直接调 `boot()`，没有 CLI 那条 watchUserPatches。
+
+- insert:
+    - id: dsh-blueprint-tree
+      name: 'dsh-blueprint-tree'

@@ -1,0 +1,61 @@
+{
+  "name": "dsh-blueprint-tree",
+  "version": "0.1.0",
+  "description": "把思维链变成一张能保存、能验证的蓝图：单元 + 向量 + 方法层的 DSH 工作流插件。Graph-as-mindmap workflow plugin for DeepSeek Harness.",
+  "keywords": [
+    "deepseek",
+    "harness",
+    "dsh",
+    "dsh-plugin",
+    "blueprint",
+    "workflow",
+    "graph",
+    "agent-workflow",
+    "mindmap"
+  ],
+  "license": "MIT",
+  "author": "meng-lx <203744120+meng-lx@users.noreply.github.com>",
+  "homepage": "https://github.com/meng-lx/dsh-blueprint-tree#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/meng-lx/dsh-blueprint-tree.git"
+  },
+  "bugs": {
+    "url": "https://github.com/meng-lx/dsh-blueprint-tree/issues"
+  },
+  "icon": "assets/icon.svg",
+  "type": "module",
+  "main": "src/host/index.ts",
+  "exports": {
+    ".": "./src/host/index.ts",
+    "./client": "./src/client/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "assets/icon.svg",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "engines": {
+    "node": ">=22",
+    "dsh": ">=0.2.1"
+  },
+  "dependencies": {
+    "typescript": "^5.9.3"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.ts"
+  }
+}
