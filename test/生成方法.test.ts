@@ -64,7 +64,7 @@ test('method.generate：用单元说明让 AI 写方法', async () => {
     // 落盘：骨架 + AI 正文
     const 源码 = 读方法(项目)
     assert.ok(源码.includes('"甲路"(输入: 上游输入[])'))
-    assert.ok(源码.includes('const 上游_开始 = 输入.find'))
+    assert.ok(源码.includes('上游_开始 = 输入.find'))
     assert.ok(源码.includes('const 值 = Number(上游_开始?.值 ?? 0) * 2;'))
     assert.ok(源码.includes('return { 值: 值 };'))
 

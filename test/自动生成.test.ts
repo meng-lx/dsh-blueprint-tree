@@ -51,7 +51,8 @@ async function 造项目(功能?: string): Promise<string> {
     文件(项目, '主蓝图.方法.ts'),
     `export const 方法 = {
   "乙路"(输入: 上游输入[]) {
-    const 上游_甲路 = 输入.find((i) => i.来源 === "甲路")?.数据 as Record<string, unknown> | undefined;
+    let 上游_甲路: Record<string, unknown> | undefined;
+    上游_甲路 = 输入.find((i) => i.来源 === "甲路")?.数据 as Record<string, unknown> | undefined;
     (globalThis as Record<string, unknown>).__看到 = String(上游_甲路?.文本 ?? "");
     return {};
   },

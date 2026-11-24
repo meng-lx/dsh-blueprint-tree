@@ -91,7 +91,7 @@ test('写方法：只写正文时自动套进骨架（上游取数不用人写�
   const 文件源码 = fs.readFileSync(文件(项目, '主蓝图.方法.ts'), 'utf8')
   const 块 = 切方法(文件源码, '甲路')
   assert.ok(块)
-  assert.match(块.文本, /const 上游_开始 = 输入\.find/, '骨架里的上游取数要自动生成')
+  assert.match(块.文本, /上游_开始 = 输入\.find/, '骨架里的上游取数要自动生成')
   assert.match(块.文本, /\/\*从这里开始\*\*\*/)
   assert.match(块.文本, /return \{ 值: 值 \};/)
 })
