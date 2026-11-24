@@ -96,6 +96,7 @@ export function 重生成(位: 同步位, 名单?: string[]): { 补了: string[]
 
   const 要哪些 = 名单 ? new Set(名单) : undefined
   const 状态表: Record<string, string> = {}
+  const 有广播 = (位.蓝图.单元 ?? []).some((u) => u.标签 === '广播')
 
   for (const u of 位.蓝图.单元 ?? []) {
     if (!该有方法(u)) continue
@@ -103,7 +104,7 @@ export function 重生成(位: 同步位, 名单?: string[]): { 补了: string[]
 
     const 上层 = 上层们(位.蓝图, u.名)
     const 上游输出 = 源码 ? 取上游输出(源码, 上层) : undefined
-    const 骨 = 方法骨架(u.名, 上层, 上游输出)
+    const 骨 = 方法骨架(u.名, 上层, 上游输出, 有广播)
     const 块 = 切方法(源码, u.名, 当前变量名)
     const 新 = 换传参(块?.文本, 骨)
 

@@ -133,6 +133,21 @@ export interface 引擎选项 {
    * 不传 ⇒ 从图的开头单元起步。
    */
   起始?: 单元标识
+  /**
+   * 已经因为 `该停` 中止过（引擎自己置位，调用方不用管）。
+   *
+   * 2026-11-24（首轮测评）：方法挂住时主循环一直 `await` 在跑的 Promise，
+   * `该停` 再也轮询不到；这里配合 `停轮询毫秒` 让主循环定期醒一次，
+   * 中止后晚到的结果一律不提交（不写共享数据、不改状态、不录下游）。
+   */
+  已停?: boolean
+  /**
+   * 等「在跑的那几个」时多久醒一次去看 `该停`（毫秒，默认 200）。
+   *
+   * 方法本身没法从外面掐断（JavaScript 的 Promise 不支持），
+   * 能做的就是：中止信号一来就立刻返回，把晚到的结果丢掉。
+   */
+  停轮询毫秒?: number
 }
 
 /** 状态机吐出来的一条日志（给 run / test 各自排版用） */
@@ -220,6 +235,8 @@ export async function 跑(图: 蓝图, 选项: 引擎选项): Promise<运行结�
   for (;;) {
     // ⓪ 该不该一刀切（用户 2026-11-15：「先停运行的单元，再清空池子和参数」）
     if (选项.该停?.()) {
+      // 先挂旗：在跑的那几个（可能正挂着等外部）晚到的结果一律作废
+      选项.已停 = true
       池.清空()
       for (const 图名 of Object.keys(选项.共享数据)) delete 选项.共享数据[图名]
       选项.日志?.({ 类型: '中止', 蓝图: 图.名, 结局: '中止' })
@@ -229,7 +246,9 @@ export async function 跑(图: 蓝图, 选项: 引擎选项): Promise<运行结�
     // ① 把现在能做的全取出来并发跑
     //    收到结束信号（主蓝图里有单元走到 $结束）之后不再取新的，
     //    但在跑的那几个要等它们收尾（用户 m04327：结束信号是状态机的活）
-    if (!选项.结束信号) {
+    //    另外：已经有人抛错了（整轮注定失败）就不再派新的，
+    //    免得「失败」之后还跑出新的副作用（首轮测评 2026-11-24）
+    if (!选项.结束信号 && 选项.错误 === undefined) {
       for (;;) {
         // 并发上限：池里可执行的再多，也最多同时挂这么多个
         // （用户 2026-11-15「并行优先」；默认见 选项.最多并发 的注释）
@@ -259,8 +278,8 @@ export async function 跑(图: 蓝图, 选项: 引擎选项): Promise<运行结�
     }
 
     if (在跑.size > 0) {
-      // ② 等一个跑完，再回来取
-      await Promise.race(在跑.values())
+      // ② 等一个跑完，再回来取；顺手带个闹钟，方法挂住时也能醒来查 `该停`
+      await 等一个(在跑.values(), 选项.停轮询毫秒 ?? 200)
       continue
     }
 
@@ -363,6 +382,18 @@ async function 跑一个(
     来源: 上,
     数据: 取数据(上),
   }))
+  /**
+   * 广播区（首轮测评 2026-11-24 修复）：
+   * 标签为「广播」的单元把输出写进 `共享数据.__广播[单元名]`，
+   * 但方法只收得到 `输入`（`(输入: 上游输入[])`，没有第二个参数），
+   * 于是「写出去的广播谁都读不到」。这里按只读快照塞进输入，
+   * 来源固定为 `__广播`：`输入.find(i => i.来源 === '__广播')?.数据`。
+   * 深拷贝 —— 读者改嵌套值不会污染广播区里的原件。
+   */
+  const 广播区 = (选项.共享数据 as Record<string, Record<string, unknown>>).__广播
+  if (广播区 && Object.keys(广播区).length > 0) {
+    输入.push({ 来源: '__广播', 数据: 深拷贝(广播区) })
+  }
   if (process.env.FLOW_DEBUG) {
     console.log('[输入] ' + 项.蓝图 + '/' + 本单元.名 + ' 来自=' + String(项.来自) + ' 键=' + Object.keys(输入[0]?.数据 ?? {}).join(','))
   }
@@ -388,6 +419,12 @@ async function 跑一个(
     // —— 选择单元要靠 Start_<下游名> 决定往哪走，不能再套一层。
     const 产出 = await 选项.ai处理(项.蓝图, 本单元.名, 输入)
     输出 = typeof 产出 === 'string' ? { 文本: 产出 } : ((产出 ?? {}) as Record<string, unknown>)
+  }
+
+  // 中止了：方法已经跑起来了，结果一律不提交（不写共享数据、不改状态、不录下游）
+  if (选项.已停) {
+    池.完成(项)
+    return
   }
 
   // 写共享数据
@@ -498,8 +535,9 @@ async function 收尾(
     return 集
   }
 
-  // ① 录下游
+  // ① 录下游（中止了 / 已经失败 ⇒ 不再派新的；首轮测评 2026-11-24）
   for (const 下 of 下游) {
+    if (选项.已停 || 选项.错误 !== undefined) break
     if (下.是结束) continue // $结束：主蓝图里就是终点
     const 子图 = 下.蓝图 === 项.蓝图 ? 图 : 选项.读蓝图(下.蓝图)
     const 下单元 = 子图?.单元.find((u) => u.名 === 下.单元)
@@ -581,6 +619,28 @@ function 筛下层(本单元: 单元, 输出: Record<string, unknown>): string[]
   const 有选择 = Object.keys(输出).some((k) => k.startsWith('Start_'))
   if (!有选择) return [...下层]
   return 下层.filter((下) => 输出[`Start_${下}`] === true)
+}
+
+/** 等「在跑的那几个」里的一个；顺带每隔 `轮询毫秒` 醒一次，让主循环能重新查 `该停` */
+function 等一个(在跑: Iterable<Promise<unknown>>, 轮询毫秒: number): Promise<unknown> {
+  const 闹钟 = new Promise((好) => {
+    const t = setTimeout(好, Math.max(1, 轮询毫秒))
+    ;(t as unknown as { unref?: () => void }).unref?.()
+  })
+  return Promise.race([...在跑, 闹钟])
+}
+
+/** 结构化深拷贝；运行时不支持 structuredClone 就退回 JSON */
+function 深拷贝<T>(值: T): T {
+  try {
+    return structuredClone(值)
+  } catch {
+    try {
+      return JSON.parse(JSON.stringify(值)) as T
+    } catch {
+      return 值
+    }
+  }
 }
 
 /** 把上游名列表变成标识（蓝图后面补） */

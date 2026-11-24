@@ -180,6 +180,7 @@ export function 方法骨架(
   单元名: string,
   上层: string[],
   上游输出?: Record<string, 输出表 | undefined>,
+  有广播?: boolean,
 ): string {
   const 键 = JSON.stringify(单元名)
   const 行: string[] = [
@@ -212,6 +213,15 @@ export function 方法骨架(
     }
   }
 
+  if (有广播) {
+    // 2026-11-24（首轮测评）：广播单元的输出去哪读 —— 状态机把它按只读快照
+    // 塞进 `输入`，来源固定 `__广播`。蓝图里没人挂「广播」标签就不生成这行。
+    行.push('        //↓广播区：标签为「广播」的单元发布的输出（只读快照，来源固定 __广播）')
+    行.push(
+      `        const 广播区 = 输入.find((i) => i.来源 === "__广播")?.数据 as Record<string, Record<string, unknown>> | undefined;`,
+    )
+  }
+
   行.push('        /*从这里开始***/')
   行.push('        return {};')
   行.push('    },')
@@ -233,7 +243,8 @@ export function 骨架(蓝图: 蓝图, 单元名: string, 方法文件?: string)
     }
   }
   const 上游输出 = 源码 ? 取上游输出(源码, 上层) : undefined
-  return 方法骨架(单元名, 上层, 上游输出)
+  const 有广播 = (蓝图.单元 ?? []).some((u) => u.标签 === '广播')
+  return 方法骨架(单元名, 上层, 上游输出, 有广播)
 }
 
 /** 某单元的上层（从「下层」现算 —— 文件里不存上层） */
