@@ -181,6 +181,8 @@ export function 方法骨架(
   上层: string[],
   上游输出?: Record<string, 输出表 | undefined>,
   有广播?: boolean,
+  软?: boolean,
+  换名?: Record<string, string>,
 ): string {
   const 键 = JSON.stringify(单元名)
   const 行: string[] = [
@@ -190,27 +192,33 @@ export function 方法骨架(
 
   if (上层.length) {
     行.push('        //↓生成单元或上游变动时插件自动生成,能看不能改')
+    // 软单元「选择性传参」（用户 m17963）：只有拉起它的那一路才给数据，
+    // 其他上游的变量也提前声明好（值恒 undefined），正文里引用不会报未定义。
+    if (软) {
+      行.push('        const 启动 = 输入.length === 1 ? 输入[0]?.来源 : undefined;')
+    }
     const 用过 = new Set<string>()
+    const 赋值: string[] = []
     for (const 上 of 上层) {
-      let 变量 = '上游_' + String(上).replace(/[^\p{L}\p{N}_$]/gu, '_')
+      // 循环向量拿「发出它的那个单元」的名义传参（用户 m18019）
+      const 源 = 换名?.[上] ?? 上
+      let 变量 = '上游_' + String(源).replace(/[^\p{L}\p{N}_$]/gu, '_')
       if (用过.has(变量)) {
         let i = 2
         while (用过.has(`${变量}_${i}`)) i++
         变量 = `${变量}_${i}`
       }
       用过.add(变量)
-      const 取数 = `输入.find((i) => i.来源 === ${JSON.stringify(上)})?.数据`
+      const 取数 = `输入.find((i) => i.来源 === ${JSON.stringify(源)})?.数据`
       const 表 = 上游输出?.[上]
       const 字段们 = 表 ? Object.entries(表) : []
-      if (字段们.length) {
-        const 段 = 字段们.map(([名, 类型]) => `${能当标识符(名) ? 名 : JSON.stringify(名)}: ${类型}`)
-        行.push(`        const ${变量} = ${取数} as {`)
-        行.push(`            ${段.join('; ')};`)
-        行.push('        } | undefined;')
-      } else {
-        行.push(`        const ${变量} = ${取数} as Record<string, unknown> | undefined;`)
-      }
+      const 类型 = 字段们.length
+        ? `{ ${字段们.map(([名, 类型]) => `${能当标识符(名) ? 名 : JSON.stringify(名)}: ${类型}`).join('; ')}; }`
+        : 'Record<string, unknown>'
+      行.push(`        let ${变量}: ${类型} | undefined;`)
+      赋值.push(`        ${软 ? `if (启动 === ${JSON.stringify(源)}) ` : ''}${变量} = ${取数} as ${类型} | undefined;`)
     }
+    行.push(...赋值)
   }
 
   if (有广播) {
@@ -244,7 +252,19 @@ export function 骨架(蓝图: 蓝图, 单元名: string, 方法文件?: string)
   }
   const 上游输出 = 源码 ? 取上游输出(源码, 上层) : undefined
   const 有广播 = (蓝图.单元 ?? []).some((u) => u.标签 === '广播')
-  return 方法骨架(单元名, 上层, 上游输出, 有广播)
+  const 本单元 = (蓝图.单元 ?? []).find((u) => u.名 === 单元名)
+  return 方法骨架(单元名, 上层, 上游输出, 有广播, 本单元?.类型 === '软', 循环换名表(蓝图))
+}
+
+/** 循环向量名 → 发出它的那个单元名（骨架与状态机都按这个名义传参） */
+export function 循环换名表(蓝图: 蓝图): Record<string, string> {
+  const 出: Record<string, string> = {}
+  for (const u of 蓝图.单元 ?? []) {
+    if (u.类型 !== '循环') continue
+    const 上游 = (蓝图.单元 ?? []).find((x) => (x.下层 ?? []).includes(u.名))
+    if (上游) 出[u.名] = 上游.名
+  }
+  return 出
 }
 
 /** 某单元的上层（从「下层」现算 —— 文件里不存上层） */

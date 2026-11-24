@@ -130,6 +130,7 @@ test('门禁：点火包是内部通道，带宿主与嵌套参数也能过', as
   const 结果 = await 跑(图, 选项)
   assert.equal(结果.结局, '完成')
   const 甲 = 选项.共享数据['主蓝图']?.甲 as Record<string, unknown>
-  assert.equal(甲?.宿主, 宿主)
+  // 宿主经过深拷贝后是新对象，但函数与闭包原样保留（可调用即可）
+  assert.equal((甲?.宿主 as Record<string, unknown>)?.写文件, 宿主.写文件)
   assert.deepEqual(甲?.参数, { 名: 'x' })
 })
