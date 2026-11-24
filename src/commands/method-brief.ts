@@ -71,7 +71,8 @@ export const 方法说明: 命令定义 = {
     行.push('【你要填的地方】`/*从这里开始***/` 这一行之后，直到方法结束之前')
     行.push('- 最后一行必须是 `return { 字段: 变量, ... };`（插件只解析这一行，中间不要有别的 return）')
     行.push('- 每个变量都要写成 `const 名字: 类型 = ...`（G4 检查会拦没有类型标注的变量）')
-    if (u.类型 === '选择') 行.push(`- 还要返回 Start_<下游名>: boolean，决定走哪条；这个单元的下游：${下层.length ? 下层.join('、') : '（没有下游）'}`)
+    行.push('- 返回值只能是**平坦记录**：字段值只允许 string / boolean / 有限的 number；`undefined` 字段当作省略，不能返回 null / 数组 / 嵌套对象 / Map / Set / Date / 函数 / symbol / bigint / NaN / Infinity。要传结构就自己编码成字符串（例如 `JSON.stringify(...)`），下游按约定还原')
+    if (u.类型 === '选择') 行.push(`- 还要返回 Start_<下游名>: boolean，决定往下走哪条；这个单元的下游：${下层.length ? 下层.join('、') : '（没有下游）'}`)
     行.push('')
 
     行.push('【下游】它们会读你的输出')

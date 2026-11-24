@@ -17,6 +17,7 @@ import { 待做池, 循环符号, 展开下游, 找谁的子蓝图 } from './待
 import type { 待做项, 单元标识 } from './待做池.ts'
 import { 算上层, 结束标记 } from './蓝图工具.ts'
 import { 活的单元 } from './路径.ts'
+import { 校验输出 } from './输出校验.ts'
 
 /** 一个上游给的数据 */
 export interface 上游输入 {
@@ -412,7 +413,7 @@ async function 跑一个(
   const 该有方法 = 本单元.类型 === '硬' || 本单元.类型 === '软' || 本单元.类型 === '选择'
   let 输出: Record<string, unknown> = {}
   if (点火) {
-    输出 = (选项.点火 ?? {}) as Record<string, unknown>
+    输出 = { ...((选项.点火 ?? {}) as Record<string, unknown>) }
   } else if (方法) {
     // await 一下：方法可以是 async 的（用户 2026-11-15「并行优先」）
     输出 = (await 方法(输入)) ?? {}
@@ -429,6 +430,20 @@ async function 跑一个(
   if (选项.已停) {
     池.完成(项)
     return
+  }
+
+  /**
+   * 输出门禁（2026-11-25 开发交接第 1 节）：普通输出必须是平坦记录、字段值为原始值。
+   * 内部通道 = 由 `点火` 启动的一整趟运行（格式化链路 / 自举链路要逐格传包，含宿主与嵌套参数）；
+   * 没点火的运行（单元测试、直接跑图）一律走门禁。
+   * 不合法直接抛错 ⇒ 上面 `.catch` 记这一格失败，不落盘、不激发下游。
+   */
+  const 内部流 = 选项.点火 !== undefined
+  if (process.env.FLOW_DEBUG) {
+    console.log('[门禁]', 项.蓝图 + '/' + 本单元.名, '内部流=' + 内部流, '键=' + Object.keys(输出 ?? {}).join(','))
+  }
+  if (!内部流) {
+    输出 = 校验输出(项.蓝图, 本单元.名, 输出)
   }
 
   // 写共享数据
