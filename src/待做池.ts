@@ -92,7 +92,7 @@ export function 是同一单元(a: 单元标识, b: 单元标识): boolean {
  * 「这张图是谁的子蓝图」—— 扫全项目的图名，找第一张里名叫 `图名` 的子蓝图单元。
  * 子蓝图单元名 = 蓝图名，全项目唯一，所以扫一遍就能定。
  */
-function 找谁的子蓝图(图名: string, 选项: 展开选项): 单元标识 | undefined {
+export function 找谁的子蓝图(图名: string, 选项: 展开选项): 单元标识 | undefined {
   if (图名 === 选项.主蓝图名) return undefined
   for (const 候选 of 选项.蓝图名们?.() ?? []) {
     if (候选 === 图名) continue
