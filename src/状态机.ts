@@ -361,8 +361,12 @@ async function 跑一个(
   // `Start_` 是「这一格往哪走」的信令，不是数据，别往下游传 ——
   // 传过去会被下游的 `筛下层` 误当成选择单元的分流表。
   const 取数据 = (上: string): Record<string, unknown> => {
-    let 原始 = 选项.共享数据[项.蓝图]?.[上]
-    let 出处 = 项.蓝图
+    // 来源带图名时按图取（复核 2026-11-25 第 1 节）：退两层再进兄弟子图，
+    // 来源是父图格子，只按名字扫会先撞上本图里的同名单元。
+    let 原始 = 项.来自图 && 上 === 项.来自
+      ? 选项.共享数据[项.来自图]?.[上]
+      : 选项.共享数据[项.蓝图]?.[上]
+    let 出处 = 项.来自图 && 上 === 项.来自 ? 项.来自图 : 项.蓝图
     if (原始 === undefined) {
       for (const [图名, 图数据] of Object.entries(选项.共享数据)) {
         if (图数据?.[上] !== undefined) { 原始 = 图数据[上]; 出处 = 图名; break }
@@ -439,7 +443,10 @@ async function 跑一个(
   if (本单元.标签 === '广播') {
     const 共享 = 选项.共享数据 as Record<string, Record<string, Record<string, unknown>>>
     const 广播区 = (共享.__广播 ??= {})
-    广播区[本单元.名] = 输出
+    // 深拷贝（复核 2026-11-25 第 2 节「普通输入可绕过广播只读隔离」）：
+    // 以前这里和本图那份输出是同一个对象，别人顺着普通边改嵌套值，
+    // 广播读者就会看到被改过的值。
+    广播区[本单元.名] = 深拷贝(输出)
   }
 
   跑了.push(本单元.名)
@@ -459,7 +466,9 @@ async function 跑一个(
   const 镜像链 = 项.父单元 && 筛过.includes(结束标记) ? 格子链(项.父单元, 选项) : []
   for (const 格 of 镜像链) {
     const 图数据 = (选项.共享数据[格.蓝图] ??= {})
-    图数据[格.单元] = { ...输出 }
+    // 深拷贝（复核 2026-11-25 第 2 节）：浅拷贝会和本图里那份输出共享嵌套对象，
+    // 下游改一下嵌套值就串到别人眼里。
+    图数据[格.单元] = 深拷贝(输出)
   }
   // 用户 m15078：单元测试 —— 只跑这一个单元，跑完直接当走到 `$结束`，下游一个都不录
   const 测试模式 = 项.测试 ?? 选项.测试
@@ -489,10 +498,19 @@ async function 跑一个(
   // 不是子图里刚跑完的那个单元（报错格式）。
   for (const 下 of 下游) {
     if (下.来自) continue
+    // 逻辑发出端（复核 2026-11-25 第 1 节：退两层后进兄弟子图时来源写成内层单元）。
+    // 待做池展开时把「这条边是从哪一格发出来的」随边带下来；逐层回溯只会
+    // 保留最近一层的 跳过，指不到真正的发出格子。
+    if (下.发出端) {
+      下.来自 = 下.发出端.单元
+      下.来自图 = 下.发出端.蓝图
+      continue
+    }
     // 子图出口往上跳时，回溯出来的下游带「跳过」= 那一层被跳过的格子。
     // 它就在下游自己的图里，正好是「这条边在下一格眼里的上游」，优先用它。
     if (下.跳过 && 下.跳过.蓝图 === 下.蓝图) {
       下.来自 = 下.跳过.单元
+      下.来自图 = 下.跳过.蓝图
       continue
     }
     // 跨图（下在别的图里）：「谁拉起来的」是**下所在那一层**的上游格子 ——
@@ -501,6 +519,7 @@ async function 跑一个(
     const 跨图 = !!父 && 下.蓝图 !== 项.蓝图 &&
       (下.蓝图 === 父.蓝图 || (!!下.父单元 && 下.父单元.蓝图 === 父.蓝图))
     下.来自 = 跨图 ? 父!.单元 : 本单元.名
+    if (跨图) 下.来自图 = 父!.蓝图
   }
 
   选项.日志?.({
@@ -529,7 +548,7 @@ async function 收尾(
   图: 蓝图,
   选项: 引擎选项,
   池: 待做池,
-  下游: (单元标识 & { 是结束?: boolean })[],
+  下游: (单元标识 & { 是结束?: boolean; 跳过?: 单元标识; 发出端?: 单元标识 })[],
   上游们: 单元标识[],
   镜像们: 单元标识[] = [],
 ): Promise<void> {
@@ -603,6 +622,7 @@ async function 收尾(
       符号: 是循环 ? 循环符号 : null,
       // 软单元要靠这一项只拿「拉起我的那一格」的输出（见 该取的）
       ...(下.来自 ? { 来自: 下.来自 } : {}),
+      ...(下.来自图 ? { 来自图: 下.来自图 } : {}),
       // 子蓝图入口要记住「我是从父图哪个子蓝图单元进来的」，
       // 它走到 $结束 时要靠这个回溯父图的下游（用户 m04327）
       ...(下.父单元 ? { 父单元: 下.父单元 } : {}),
@@ -675,16 +695,40 @@ function 格子链(起点: 单元标识, 选项: 引擎选项): 单元标识[] {
 }
 
 /** 结构化深拷贝；运行时不支持 structuredClone 就退回 JSON */
-function 深拷贝<T>(值: T): T {
-  try {
-    return structuredClone(值)
-  } catch {
-    try {
-      return JSON.parse(JSON.stringify(值)) as T
-    } catch {
-      return 值
-    }
+/**
+ * 深拷贝（保留函数）。
+ *
+ * 不能用 structuredClone / JSON：共享数据里带 `宿主`（一堆函数），
+ * 两者都会把函数抹掉，格子里 `宿主.建目录?.(...)` 就成了 undefined。
+ */
+function 深拷贝<T>(值: T, 见过 = new WeakMap<object, unknown>()): T {
+  if (值 === null || typeof 值 !== 'object') return 值
+  const 原 = 值 as unknown as object
+  const 已 = 见过.get(原)
+  if (已 !== undefined) return 已 as T
+  if (Array.isArray(值)) {
+    const 出: unknown[] = []
+    见过.set(原, 出)
+    for (const x of 值) 出.push(深拷贝(x, 见过))
+    return 出 as unknown as T
   }
+  if (值 instanceof Date) return new Date(值.getTime()) as unknown as T
+  if (值 instanceof Map) {
+    const 出 = new Map()
+    见过.set(原, 出)
+    for (const [k, v] of 值) 出.set(k, 深拷贝(v, 见过))
+    return 出 as unknown as T
+  }
+  if (值 instanceof Set) {
+    const 出 = new Set()
+    见过.set(原, 出)
+    for (const v of 值) 出.add(深拷贝(v, 见过))
+    return 出 as unknown as T
+  }
+  const 出: Record<string, unknown> = {}
+  见过.set(原, 出)
+  for (const k of Object.keys(值 as Record<string, unknown>)) 出[k] = 深拷贝((值 as Record<string, unknown>)[k], 见过)
+  return 出 as unknown as T
 }
 
 /** 把上游名列表变成标识（蓝图后面补） */
