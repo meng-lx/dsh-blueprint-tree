@@ -298,3 +298,30 @@ test('日志 / 单元跑完回调自己抛错，也不阻断终止', async () =>
   assert.equal(结果.错误?.message, '第一次', '首个失败诊断仍然保留')
   assert.equal(选项.已停, true)
 })
+
+test('错误对象的 message 是 getter 且再抛：仍返回结构化「失败」', async () => {
+  const 主 = 造图('主蓝图', [
+    { 名: '开始', 类型: '开始', 下层: ['坏消息'] },
+    { 名: '坏消息', 类型: '硬', 下层: ['$结束'] },
+  ])
+  const 选项 = 引擎({ 主蓝图: 主 }, {
+    坏消息: () => {
+      const e = new Error('原本的文案')
+      Object.defineProperty(e, 'message', {
+        get() {
+          throw new TypeError('读 message 又炸了')
+        },
+      })
+      throw e
+    },
+  })
+  选项.日志 = () => {}
+
+  const r = await 限时(跑(主, 选项), 400)
+  assert.notEqual(r, '超时', '诊断边界不许让跑() 卡住')
+  const 结果 = r as { 结局: string; 错误?: Error }
+  assert.equal(结果.结局, '失败')
+  assert.equal(typeof 结果.错误?.message, 'string', '调用方拿到的必须能读 message')
+  assert.doesNotThrow(() => String(结果.错误?.message))
+  assert.equal(选项.已停, true)
+})

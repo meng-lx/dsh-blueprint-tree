@@ -243,13 +243,28 @@ function 报单元跑完(选项: 引擎选项, 蓝图: string, 单元: string, �
 /** 失败时对外给的那个 Error：非 Error 的值要包成能看的文本（2026-11-26） */
 function 失败错误(选项: 引擎选项): Error {
   const e = 选项.错误
-  if (e instanceof Error) return e
+  if (e instanceof Error) {
+    // 用户 m19432 的第四个缺口：`message` 是 getter 时可以再抛。
+    // 这里先试读一次，读不了就换成一个纯文本的 Error —— 别让诊断反过来把失败结果顶掉。
+    try {
+      void e.message
+      return e
+    } catch {
+      return new Error("未知错误（读取错误信息时又抛了）")
+    }
+  }
   if (e === undefined || e === null) return new Error('方法抛了非 Error 的值')
   return new Error(出错文本(e))
 }
 /** 把任意异常变成文本：`Object.create(null)` 这种没有原型的对象也要能转（2026-11-26） */
 function 出错文本(值: unknown): string {
-  if (值 instanceof Error) return 值.message
+  if (值 instanceof Error) {
+    try {
+      return 值.message
+    } catch {
+      return "未知错误（读取错误信息时又抛了）"
+    }
+  }
   if (typeof 值 === "string") return 值
   try {
     return String(值)
