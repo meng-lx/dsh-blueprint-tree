@@ -30,6 +30,8 @@ export interface 线程 {
 
 let 当前工: 线程 | null = null
 let 当前命令 = ''
+/** 当前这条隔离任务是替哪个项目跑的（停止请求要能核对归属，用户 m19432） */
+let 当前项目 = ''
 
 /** 被主动强杀的线程（`exit` 码不可靠，用它判定「中止」） */
 const 取消的 = new WeakSet<object>()
@@ -51,20 +53,33 @@ export function 有隔离任务(): boolean {
   return 当前工 !== null
 }
 
-/** 强杀正在跑的隔离任务；返回「真的杀掉了一个」 */
-export function 强杀(): boolean {
+/**
+ * 强杀正在跑的隔离任务；返回「真的杀掉了一个」。
+ *
+ * 用户 m19432：停止请求带了项目就要核对归属 —— 停 B 不能把正在跑的 A 杀掉。
+ * 不带项目是老的用法（界面上的「结束」不带项目时会走到这里），只有当池里
+ * 没有任务时才安全；有任务时调用方应当先解析项目。
+ */
+export function 强杀(项目?: string): boolean {
   const 工 = 当前工
   if (!工) return false
+  if (项目 !== undefined && 项目 !== '' && 项目 !== 当前项目) return false
   // 先打标：线程可能还没来得及跑就被 terminate，`exit` 码会报 0
   取消的.add(工 as unknown as object)
   当前工 = null
   当前命令 = ''
+  当前项目 = ''
   try {
     void 工.terminate()
   } catch {
     /* 已经没了 */
   }
   return true
+}
+
+/** 当前在跑的那条任务属于哪个项目（空串 = 没有任务） */
+export function 在跑的项目(): string {
+  return 当前工 ? 当前项目 : ''
 }
 
 /** 在独立线程里跑一条命令；被强杀时返回 `{ ok:false, 错误:中止 }` */
@@ -75,6 +90,7 @@ export async function 跑隔离(指令: 指令): Promise<结果> {
   const 工 = 造线程()
   当前工 = 工
   当前命令 = 名
+  当前项目 = String((指令.参数 as Record<string, unknown> | undefined)?.项目 ?? '')
   let 已收 = false
   const 被取消 = (): boolean => 取消的.has(工 as unknown as object)
 
@@ -86,6 +102,11 @@ export async function 跑隔离(指令: 指令): Promise<结果> {
         完成(r)
       }
       工.once('message', (信: { 型?: string; 结果?: 结果; 消息?: string }) => {
+        // 用户 m19432：已经取消的任务，迟到的结果不能报成功
+        if (被取消()) {
+          收(失败('中止', '任务已被强制停止', 名))
+          return
+        }
         if (信?.型 === '结果') 收(信.结果 as 结果)
         else if (信?.型 === '异常') 收(失败('运行', 安全文本(信.消息 ?? '线程异常'), 名))
         else 收(失败('运行', '线程回了不认识的消息', 名))
@@ -112,6 +133,7 @@ export async function 跑隔离(指令: 指令): Promise<结果> {
     if (当前工 === 工) {
       当前工 = null
       当前命令 = ''
+      当前项目 = ''
     }
     try {
       void 工.terminate()

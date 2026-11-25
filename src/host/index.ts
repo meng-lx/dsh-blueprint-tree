@@ -136,7 +136,16 @@ function 建处理器(deps: { log(m: string): void }): (req: 最小请求, res: 
         // 「结束」先把 Worker terminate 掉，再让命令本身写一遍「要求结束」兜底。
         const 命令名 = String(体.cmd ?? '')
         const 正式名 = String(取命令(命令名)?.名 ?? 命令名)
-        if (正式名 === 'run.stop') 强杀()
+        if (正式名 === 'run.stop') {
+          // 用户 m19432：停止请求必须指名项目，而且只停归属对得上的那一条 ——
+          // 以前这里先全局强杀再看参数，停 B 会把正在跑的 A 杀掉。
+          const 停谁 = String(参数.项目 ?? '')
+          if (!停谁) {
+            回(400, { ok: false, 错误: { 类型: '参数', 消息: '停止要带项目：不带项目不知道停哪一条运行' } })
+            return
+          }
+          强杀(停谁)
+        }
         const 结果 = 要不要隔离(正式名)
           ? await 跑隔离({ cmd: 命令名, 参数 })
           : await 执行({ cmd: 命令名, 参数 })

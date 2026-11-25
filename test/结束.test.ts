@@ -11,7 +11,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { 执行 } from '../src/controller.ts'
 import { 跑 } from '../src/状态机.ts'
-import { 读运行记录 } from '../src/运行记录.ts'
+import { 读运行记录, 写运行记录 } from '../src/运行记录.ts'
 import { 隔离登记表, 唯一名, 目录 } from './工具.ts'
 
 隔离登记表()
@@ -24,16 +24,24 @@ async function 建项目(基: string): Promise<string> {
   return 名
 }
 
-test('结束命令：写 运行记录.json 的 要求结束', async () => {
-  const 项目 = await 建项目('结束写标记')
+// 用户 m19432：停止请求必须绑定到「某一次运行」。
+// 没在跑就不写标记 —— 否则下一次重跑会被上一次的停止请求直接中止。
+test('结束命令：没在跑时不写标记', async () => {
+  const 项目 = await 建项目('结束没在跑')
   const r = await 执行({ cmd: '结束', 参数: { 项目 } })
   assert.equal(r.ok, true, JSON.stringify(r))
-  assert.equal(读运行记录(目录(项目)).要求结束, true)
+  assert.equal(读运行记录(目录(项目)).要求结束, undefined, '不该留下会掐掉下次重跑的标记')
+  if (r.ok) assert.equal((r.数据 as Record<string, unknown>).要求结束, false)
 })
 
-test('结束命令：重复调第二次会提示「上次的还没被消费」', async () => {
+test('结束命令：在跑时写绑到这一次的标记，重复调提示「还没被消费」', async () => {
   const 项目 = await 建项目('结束重复')
-  await 执行({ cmd: '结束', 参数: { 项目 } })
+  写运行记录(目录(项目), { 上次: '运行', 测试报错: [], 本次运行: 'r1' })
+
+  const 一 = await 执行({ cmd: '结束', 参数: { 项目 } })
+  assert.equal(一.ok, true, JSON.stringify(一))
+  assert.equal(读运行记录(目录(项目)).要求结束, 'r1')
+
   const r = await 执行({ cmd: '结束', 参数: { 项目 } })
   assert.equal(r.ok, true, JSON.stringify(r))
   if (r.ok) assert.match(JSON.stringify(r.数据), /还没被状态机消费/)
