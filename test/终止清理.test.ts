@@ -224,3 +224,77 @@ test('子图内失败：父图格子不提交输出，父图下游不跑', async
   assert.equal(提交.尾, undefined, '失败后不得提交父图后续单元的输出')
   assert.ok(!跑过.includes('尾'), '不得触发父图下游：' + JSON.stringify(跑过))
 })
+
+test('抛没有原型的对象（Object.create(null)）+ 开日志：仍结构化失败并清理', async () => {
+  const 主 = 造图('主蓝图', [
+    { 名: '开始', 类型: '开始', 下层: ['怪', '挂起'] },
+    { 名: '怪', 类型: '硬', 下层: ['$结束'] },
+    { 名: '挂起', 类型: '硬', 下层: ['尾'] },
+    { 名: '尾', 类型: '硬', 下层: ['$结束'] },
+  ])
+  let 放行!: () => void
+  const 等着 = new Promise<void>((好) => {
+    放行 = 好
+  })
+  const 跑过: string[] = []
+  const 日志: unknown[] = []
+  const 选项 = 引擎({ 主蓝图: 主 }, {
+    怪: () => {
+      // 没有原型的对象：String(它) 会抛 TypeError
+      throw Object.create(null)
+    },
+    挂起: async () => {
+      跑过.push('挂起')
+      await 等着
+      return { 晚到: 1 }
+    },
+    尾: () => {
+      跑过.push('尾')
+      return {}
+    },
+  })
+  选项.日志 = (记录) => {
+    日志.push(记录)
+  }
+
+  // 要求：不 reject、不卡住，返回结构化的「失败」
+  const 结果 = await 限时(跑(主, 选项), 400)
+  assert.notEqual(结果, '超时', '异常格式化不能让跑() 卡住')
+  const r = 结果 as { 结局: string; 错误?: Error; 错误单元?: string }
+  assert.equal(r.结局, '失败')
+  assert.equal(r.错误单元, '怪')
+  assert.equal(typeof r.错误?.message, 'string', '诊断必须是能看的文本')
+  assert.equal(选项.已停, true, '终止必须真的执行')
+  assert.ok(日志.length > 0, '日志在这种情况下也要写出来')
+
+  // 放行挂起支路：不得有任何晚到写入
+  放行()
+  await new Promise((好) => setTimeout(好, 80))
+  assert.equal((选项.共享数据['主蓝图'] ?? {}).挂起, undefined, '放行后不该有晚到写入')
+  assert.ok(!跑过.includes('尾'), '放行后不该派新下游')
+})
+
+test('日志 / 单元跑完回调自己抛错，也不阻断终止', async () => {
+  const 主 = 造图('主蓝图', [
+    { 名: '开始', 类型: '开始', 下层: ['炸'] },
+    { 名: '炸', 类型: '硬', 下层: ['$结束'] },
+  ])
+  const 选项 = 引擎({ 主蓝图: 主 }, {
+    炸: () => {
+      throw new Error('第一次')
+    },
+  })
+  选项.日志 = () => {
+    throw new Error('日志炸了')
+  }
+  选项.单元跑完 = () => {
+    throw new Error('回调炸了')
+  }
+
+  const r = await 限时(跑(主, 选项), 400)
+  assert.notEqual(r, '超时')
+  const 结果 = r as { 结局: string; 错误?: Error }
+  assert.equal(结果.结局, '失败', '回调抛错不许把「失败」变成 reject')
+  assert.equal(结果.错误?.message, '第一次', '首个失败诊断仍然保留')
+  assert.equal(选项.已停, true)
+})
