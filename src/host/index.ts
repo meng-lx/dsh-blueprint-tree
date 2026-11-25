@@ -18,8 +18,10 @@ import { appendFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { 执行 } from '../controller.ts'
 import { 取命令 } from '../commands.ts'
-import { 跑隔离, 强杀, 要不要隔离 } from '../任务.ts'
+import { 跑隔离, 强杀, 在跑的运行, 要不要隔离 } from '../任务.ts'
 import { 设AI } from '../ai.ts'
+import { 定位项目 } from '../登记表.ts'
+import { 新运行标识, 清运行 } from '../运行记录.ts'
 
 /** 本插件包的根目录（本文件在 src/host/ 下，上两级即包根） */
 const PACKAGE_ROOT = join(import.meta.dirname, '..', '..')
@@ -109,7 +111,8 @@ async function 读请求体(req: 最小请求): Promise<Record<string, unknown>>
  * 一条路由，一种写法：
  *   POST { cmd: 'project.list', 参数: {} }   →  { ok, 数据 } / { ok:false, 错误 }
  */
-function 建处理器(deps: { log(m: string): void }): (req: 最小请求, res: 最小响应) => void {
+/** 建 HTTP 处理器；导出是给回归用的（`test/停止绑定.test.ts` 的 Host 层用例） */
+export function 建处理器(deps: { log(m: string): void }): (req: 最小请求, res: 最小响应) => void {
   return (req, res) => {
     const 回 = (status: number, body: unknown): void => {
       try {
@@ -136,6 +139,10 @@ function 建处理器(deps: { log(m: string): void }): (req: 最小请求, res: 
         // 「结束」先把 Worker terminate 掉，再让命令本身写一遍「要求结束」兜底。
         const 命令名 = String(体.cmd ?? '')
         const 正式名 = String(取命令(命令名)?.名 ?? 命令名)
+        // 用户 m19572：启动时就把运行标识交给调用方（运行命令用 Host 生成的这一个）
+        if (正式名 === 'run' && !String(参数.本次运行 ?? '')) {
+          参数.本次运行 = 新运行标识(String(参数.项目 ?? ''))
+        }
         if (正式名 === 'run.stop') {
           // 用户 m19432：停止请求必须指名项目，而且只停归属对得上的那一条 ——
           // 以前这里先全局强杀再看参数，停 B 会把正在跑的 A 杀掉。
@@ -144,7 +151,19 @@ function 建处理器(deps: { log(m: string): void }): (req: 最小请求, res: 
             回(400, { ok: false, 错误: { 类型: '参数', 消息: '停止要带项目：不带项目不知道停哪一条运行' } })
             return
           }
-          强杀(停谁)
+          // 用户 m19572：请求带了运行标识就一起核对 —— 指向旧运行 r1 的迟到请求
+          // 既不杀正在跑的 r2，也不写标记（标记由命令层按「没有可停的运行」返回）。
+          const 要停的 = String(参数.本次运行 ?? '')
+          const 在跑 = 在跑的运行()
+          const 不匹配 = !!要停的 && !!在跑 && 要停的 !== 在跑
+          if (!不匹配) {
+            if (强杀(停谁, 要停的) && 在跑) {
+              // 强停之后 Worker 直接没了，走不到它自己的收尾 ⇒ 这里替它清掉
+              // 「这一次」的记录，别让空闲时的停止请求误报「还没被消费」。
+              const 定 = 定位项目({ 项目: 停谁 })
+              if (定.ok) 清运行(定.数据.项目目录, 在跑)
+            }
+          }
         }
         const 结果 = 要不要隔离(正式名)
           ? await 跑隔离({ cmd: 命令名, 参数 })

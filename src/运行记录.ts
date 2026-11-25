@@ -104,3 +104,27 @@ export function 写运行记录(项目目录: string, 记录: 运行记录): voi
   const 文件 = path.join(项目目录, 运行记录文件名)
   fs.writeFileSync(文件, JSON.stringify(记录, null, 2) + '\n', 'utf8')
 }
+
+/**
+ * 造一个运行标识（用户 m19572：启动时就把标识交给调用方，停止时核对它）。
+ * 形状：`项目名#时间戳#随机串`
+ */
+export function 新运行标识(项目名: string): string {
+  return `${项目名}#${Date.now()}#${Math.random().toString(36).slice(2, 8)}`
+}
+
+/**
+ * 这一趟收尾：**只清自己那一次**的记录（用户 m19572）。
+ *
+ * 强停之后 Worker 直接没了，不会走到运行命令的收尾，所以 Host 也要调这里；
+ * 但那时可能已经有新一趟在跑 —— 标识对不上就一个字节都不动。
+ */
+export function 清运行(项目目录: string, 本次运行?: string): void {
+  if (!本次运行) return
+  const 记录 = 读运行记录(项目目录)
+  if (记录.本次运行 !== 本次运行) return
+  const 下: 运行记录 = { 上次: 记录.上次, 测试报错: 记录.测试报错 }
+  // 自己那一次的停止请求一并清掉，别让它去掐下一次重跑
+  if (记录.要求结束 !== undefined && 记录.要求结束 !== 本次运行) 下.要求结束 = 记录.要求结束
+  写运行记录(项目目录, 下)
+}

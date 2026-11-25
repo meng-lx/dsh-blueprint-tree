@@ -32,6 +32,8 @@ let 当前工: 线程 | null = null
 let 当前命令 = ''
 /** 当前这条隔离任务是替哪个项目跑的（停止请求要能核对归属，用户 m19432） */
 let 当前项目 = ''
+/** 当前这条隔离任务是哪一次运行（停止请求要能核对「是不是这一趟」，用户 m19572） */
+let 当前运行 = ''
 
 /** 被主动强杀的线程（`exit` 码不可靠，用它判定「中止」） */
 const 取消的 = new WeakSet<object>()
@@ -60,15 +62,18 @@ export function 有隔离任务(): boolean {
  * 不带项目是老的用法（界面上的「结束」不带项目时会走到这里），只有当池里
  * 没有任务时才安全；有任务时调用方应当先解析项目。
  */
-export function 强杀(项目?: string): boolean {
+export function 强杀(项目?: string, 运行?: string): boolean {
   const 工 = 当前工
   if (!工) return false
   if (项目 !== undefined && 项目 !== '' && 项目 !== 当前项目) return false
+  // 用户 m19572：请求带了运行标识就核对 —— 指向旧运行 r1 的迟到请求不能停掉 r2
+  if (运行 !== undefined && 运行 !== '' && 运行 !== 当前运行) return false
   // 先打标：线程可能还没来得及跑就被 terminate，`exit` 码会报 0
   取消的.add(工 as unknown as object)
   当前工 = null
   当前命令 = ''
   当前项目 = ''
+  当前运行 = ''
   try {
     void 工.terminate()
   } catch {
@@ -82,6 +87,11 @@ export function 在跑的项目(): string {
   return 当前工 ? 当前项目 : ''
 }
 
+/** 当前在跑的那一次运行的标识（空串 = 没有任务 / 不知道标识） */
+export function 在跑的运行(): string {
+  return 当前工 ? 当前运行 : ''
+}
+
 /** 在独立线程里跑一条命令；被强杀时返回 `{ ok:false, 错误:中止 }` */
 export async function 跑隔离(指令: 指令): Promise<结果> {
   const 名 = String(指令.cmd ?? '')
@@ -91,6 +101,7 @@ export async function 跑隔离(指令: 指令): Promise<结果> {
   当前工 = 工
   当前命令 = 名
   当前项目 = String((指令.参数 as Record<string, unknown> | undefined)?.项目 ?? '')
+  当前运行 = String((指令.参数 as Record<string, unknown> | undefined)?.本次运行 ?? '')
   let 已收 = false
   const 被取消 = (): boolean => 取消的.has(工 as unknown as object)
 
@@ -134,6 +145,7 @@ export async function 跑隔离(指令: 指令): Promise<结果> {
       当前工 = null
       当前命令 = ''
       当前项目 = ''
+      当前运行 = ''
     }
     try {
       void 工.terminate()
