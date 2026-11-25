@@ -18,9 +18,13 @@ function 造替身() {
   const 清单: 假线程[] = []
   const 工厂 = (): 线程 => {
     const 监听: Record<string, ((值?: unknown) => void)[]> = { message: [], error: [], exit: [] }
+    const 常驻: Record<string, ((值?: unknown) => void)[]> = { message: [], error: [], exit: [] }
     const 工: 假线程 = {
       名: `假线程${清单.length + 1}`,
       收到: [],
+      on(事件, 回调) {
+        ;(常驻[事件] ??= []).push(回调 as (值?: unknown) => void)
+      },
       once(事件, 回调) {
         ;(监听[事件] ??= []).push(回调 as (值?: unknown) => void)
       },
@@ -35,6 +39,7 @@ function 造替身() {
         return Promise.resolve(0)
       },
       发(事件, 值) {
+        for (const f of 常驻[事件] ?? []) f(值)
         const 们 = 监听[事件] ?? []
         监听[事件] = []
         for (const f of 们) f(值)

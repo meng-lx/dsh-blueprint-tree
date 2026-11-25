@@ -17,12 +17,14 @@
 import { Worker } from 'node:worker_threads'
 import type { 指令, 结果 } from './types.ts'
 import { 失败 } from './types.ts'
+import { 问AI } from './ai.ts'
 
 /** 需要能强杀的命令（按正式名） */
 export const 隔离命令 = new Set(['run', 'test.unit', 'test.blueprint', 'test.project'])
 
 /** 线程的最小接口：真 Worker 与测试里的假线程都满足 */
 export interface 线程 {
+  on(事件: 'message' | 'error' | 'exit', 回调: (...参数: never[]) => void): unknown
   once(事件: 'message' | 'error' | 'exit', 回调: (...参数: never[]) => void): unknown
   postMessage(值: unknown): void
   terminate(): unknown
@@ -37,6 +39,43 @@ let 当前运行 = ''
 
 /** 被主动强杀的线程（`exit` 码不可靠，用它判定「中止」） */
 const 取消的 = new WeakSet<object>()
+
+/**
+ * 「还没开跑就被点了停止」——用户 m19802 的复现：请求体还没收全时，同 ID 的
+ * `run.stop` 先到，那时 Worker 还没登记，停止请求就丢了，随后 Worker 照样启动。
+ *
+ * 做法：先到、又没有任务在跑的停止请求记在这里（键 = 项目 + 运行标识）；
+ * 等那一条真的 `跑隔离` 起来时立刻中止它。页面生成的标识一回一换，所以不会
+ * 误伤后来的运行；老数据（不带标识）不记，免得停掉随后的任意一趟。
+ */
+const 待取消 = new Map<string, number>()
+const 待取消上限毫秒 = 30_000
+
+function 待取消键(项目: string, 运行: string): string {
+  return 项目 + '\u0000' + 运行
+}
+
+/** 测试/收尾用：清空待取消记录 */
+export function 清待取消(): void {
+  待取消.clear()
+}
+
+/** 记下一条「还没开跑就被点了停止」的请求 */
+export function 记待取消(项目: string, 运行: string): void {
+  if (!运行) return
+  const 现在 = Date.now()
+  for (const [键, 时] of 待取消) if (现在 - 时 > 待取消上限毫秒) 待取消.delete(键)
+  待取消.set(待取消键(项目, 运行), 现在)
+}
+
+/** 这一条是不是早被点过停止（取走即消费） */
+function 消耗待取消(项目: string, 运行: string): boolean {
+  if (!运行) return false
+  const 键 = 待取消键(项目, 运行)
+  const 有 = 待取消.has(键)
+  待取消.delete(键)
+  return 有
+}
 
 let 造线程 = (): 线程 => new Worker(new URL('./任务线程.ts', import.meta.url)) as unknown as 线程
 
@@ -104,6 +143,8 @@ export async function 跑隔离(指令: 指令): Promise<结果> {
   当前运行 = String((指令.参数 as Record<string, unknown> | undefined)?.本次运行 ?? '')
   let 已收 = false
   const 被取消 = (): boolean => 取消的.has(工 as unknown as object)
+  // 启动前就被点过停止 ⇒ 立刻中止，别让它真的跑起来（用户 m19802）
+  const 开跑即停 = 消耗待取消(当前项目, 当前运行)
 
   try {
     return await new Promise<结果>((完成) => {
@@ -112,7 +153,24 @@ export async function 跑隔离(指令: 指令): Promise<结果> {
         已收 = true
         完成(r)
       }
-      工.once('message', (信: { 型?: string; 结果?: 结果; 消息?: string }) => {
+      const 回AI = (id: string, 文本?: string, 错误?: string): void => {
+        try {
+          工.postMessage({ 型: 'AI回', id, 文本, 错误 })
+        } catch {
+          /* 线程已经没了 */
+        }
+      }
+      工.on('message', (信: { 型?: string; id?: string; 系统?: string; 用户?: string; 结果?: 结果; 消息?: string }) => {
+        // 用户 m19802：Worker 里的 AI 槽是空的（Host 的接线在主进程），
+        // 这里替它问一次再把答案送回去。
+        if (信?.型 === '问AI') {
+          const id = String(信.id ?? '')
+          void 问AI(String(信.系统 ?? ''), String(信.用户 ?? '')).then(
+            (文本) => 回AI(id, 文本),
+            (e: unknown) => 回AI(id, undefined, 安全文本(e)),
+          )
+          return
+        }
         // 用户 m19432：已经取消的任务，迟到的结果不能报成功
         if (被取消()) {
           收(失败('中止', '任务已被强制停止', 名))
@@ -132,6 +190,16 @@ export async function 跑隔离(指令: 指令): Promise<结果> {
         if (被取消()) 收(失败('中止', '任务已被强制停止', 名))
         else 收(码 === 0 ? 失败('运行', '线程提前退出，没有结果', 名) : 失败('中止', '任务已被强制停止', 名))
       })
+      if (开跑即停) {
+        取消的.add(工 as unknown as object)
+        try {
+          void 工.terminate()
+        } catch {
+          /* 已经没了 */
+        }
+        收(失败('中止', '任务还没开始就被停止请求叫停了', 名))
+        return
+      }
       try {
         工.postMessage({ 型: '跑', 指令 })
       } catch (e) {

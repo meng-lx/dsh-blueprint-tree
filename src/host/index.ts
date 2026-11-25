@@ -18,7 +18,7 @@ import { appendFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { 执行 } from '../controller.ts'
 import { 取命令 } from '../commands.ts'
-import { 跑隔离, 强杀, 在跑的运行, 要不要隔离 } from '../任务.ts'
+import { 跑隔离, 强杀, 在跑的运行, 要不要隔离, 记待取消 } from '../任务.ts'
 import { 设AI } from '../ai.ts'
 import { 定位项目 } from '../登记表.ts'
 import { 新运行标识, 清运行 } from '../运行记录.ts'
@@ -156,6 +156,23 @@ export function 建处理器(deps: { log(m: string): void }): (req: 最小请求
           const 要停的 = String(参数.本次运行 ?? '')
           const 在跑 = 在跑的运行()
           const 不匹配 = !!要停的 && !!在跑 && 要停的 !== 在跑
+          // 用户 m19802：这一趟还没登记（请求体还没收全就有人点停止）⇒ 记下来，
+          // 等它真正启动时立刻中止，别让停止请求丢掉。
+          if (!在跑 && 要停的) {
+            记待取消(停谁, 要停的)
+            回(200, {
+              ok: true,
+              数据: {
+                项目: 停谁,
+                已停止: false,
+                待处理: true,
+                本次运行: 要停的,
+                要求结束: true,
+                提示: '这一趟还没开始，停止请求已经记下，启动时会立刻中止',
+              },
+            })
+            return
+          }
           if (!不匹配 && 强杀(停谁, 要停的)) {
             // 强停之后 Worker 直接没了，走不到它自己的收尾 ⇒ 这里替它清掉
             // 「这一次」的记录，别让空闲时的停止请求误报「还没被消费」。
@@ -179,6 +196,19 @@ export function 建处理器(deps: { log(m: string): void }): (req: 最小请求
         const 结果 = 要不要隔离(正式名)
           ? await 跑隔离({ cmd: 命令名, 参数 })
           : await 执行({ cmd: 命令名, 参数 })
+        // 用户 m19802：Worker 异常退出 / 被强停 / 内层再被强停时，运行记录可能残留
+        // 「本次运行」；只要记录里还是这一趟，就替它清掉（不是这一趟则一个字节不动）。
+        if (正式名 === 'run') {
+          const 本次 = String(参数.本次运行 ?? '')
+          const 定 = 定位项目({ 项目: String(参数.项目 ?? '') })
+          if (本次 && 定.ok) {
+            try {
+              清运行(定.数据.项目目录, 本次)
+            } catch {
+              /* 清理失败不影响命令结果 */
+            }
+          }
+        }
         回(结果.ok ? 200 : 400, 结果)
       } catch (err) {
         deps.log('API 处理异常: ' + String(err))

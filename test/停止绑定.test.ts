@@ -10,7 +10,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { 跑隔离, 强杀, 有隔离任务, 换线程工厂, 在跑的项目, 在跑的运行 } from '../src/任务.ts'
+import { 跑隔离, 强杀, 有隔离任务, 换线程工厂, 在跑的项目, 在跑的运行, 清待取消 } from '../src/任务.ts'
 import type { 线程 } from '../src/任务.ts'
 import { 应当停止, 清运行, 读运行记录, 写运行记录 } from '../src/运行记录.ts'
 import { 结束运行, 运行状态 } from '../src/commands/end.ts'
@@ -20,6 +20,7 @@ import { 建处理器 } from '../src/host/index.ts'
 async function 调接口(
   处理器: (req: never, res: never) => void,
   体: unknown,
+  等毫秒 = 20,
 ): Promise<{ 状态: number; 体: unknown }> {
   const 字节 = new TextEncoder().encode(JSON.stringify(体))
   let 状态 = 0
@@ -40,7 +41,7 @@ async function 调接口(
   }
   await new Promise<void>((好) => {
     ;(处理器 as unknown as (a: unknown, b: unknown) => void)(req, res)
-    setTimeout(好, 20)
+    setTimeout(好, 等毫秒)
   })
   return { 状态, 体: JSON.parse(文 || '{}') }
 }
@@ -54,8 +55,12 @@ function 造替身() {
   const 清单: 假线程[] = []
   const 工厂 = (): 线程 => {
     const 监听: Record<string, ((值?: unknown) => void)[]> = { message: [], error: [], exit: [] }
+    const 常驻: Record<string, ((值?: unknown) => void)[]> = { message: [], error: [], exit: [] }
     const 工: 假线程 = {
       收到: [],
+      on(事件, 回调) {
+        ;(常驻[事件] ??= []).push(回调 as (值?: unknown) => void)
+      },
       once(事件, 回调) {
         ;(监听[事件] ??= []).push(回调 as (值?: unknown) => void)
       },
@@ -69,6 +74,7 @@ function 造替身() {
         return Promise.resolve(0)
       },
       发(事件, 值) {
+        for (const f of 常驻[事件] ?? []) f(值)
         const 们 = 监听[事件] ?? []
         监听[事件] = []
         for (const f of 们) f(值)
@@ -428,6 +434,73 @@ test('端到端：停掉自己那趟，迟到的同一请求不影响下一趟',
     assert.equal(强杀('甲', r2), true)
     await 第二趟
     assert.equal(清单.length, 2)
+  } finally {
+    if (旧 === undefined) delete process.env.BLUEPRINT_TREE_HOME
+    else process.env.BLUEPRINT_TREE_HOME = 旧
+    换线程工厂(undefined)
+    fs.rmSync(家, { recursive: true, force: true })
+    fs.rmSync(项目目录, { recursive: true, force: true })
+  }
+})
+
+
+// ⑧ 用户 m19802：请求体还没收全就点停止 ⇒ 记下来，启动时立刻中止（别丢、也别误停下一趟）
+test('启动前发出的停止请求：启动时立刻中止', async () => {
+  const { 工厂 } = 造替身()
+  换线程工厂(工厂)
+  const 项目目录 = 临时目录('停止项目9')
+  const 家 = 建家(项目目录)
+  const 旧 = process.env.BLUEPRINT_TREE_HOME
+  try {
+    process.env.BLUEPRINT_TREE_HOME = 家
+    const 接口 = 建处理器({ log: () => {} })
+
+    const 停 = await 调接口(接口, { cmd: 'run.stop', 参数: { 项目: '甲', 本次运行: 'r9' } })
+    assert.equal(停.状态, 200, JSON.stringify(停.体))
+    const 数据 = (停.体 as { 数据?: Record<string, unknown> }).数据 ?? {}
+    assert.equal(数据.已停止, false)
+    assert.equal(数据.待处理, true, '要明确说「记下了」')
+    assert.equal(数据.本次运行, 'r9')
+
+    写运行记录(项目目录, { 上次: '运行', 测试报错: [], 本次运行: 'r9' })
+    const 跑 = await 调接口(接口, { cmd: 'run', 参数: { 项目: '甲', 本次运行: 'r9' } }, 200)
+    assert.equal(跑.状态, 400, JSON.stringify(跑.体))
+    const 终 = 跑.体 as { ok?: boolean; 错误?: { 类型?: string } }
+    assert.equal(终.ok, false)
+    assert.equal(终.错误?.类型, '中止', JSON.stringify(终))
+    assert.equal(有隔离任务(), false)
+    assert.equal(读运行记录(项目目录).本次运行, undefined, 'Host 收尾要清掉这一趟的记录')
+  } finally {
+    if (旧 === undefined) delete process.env.BLUEPRINT_TREE_HOME
+    else process.env.BLUEPRINT_TREE_HOME = 旧
+    清待取消()
+    换线程工厂(undefined)
+    fs.rmSync(家, { recursive: true, force: true })
+    fs.rmSync(项目目录, { recursive: true, force: true })
+  }
+})
+
+// ⑨ 用户 m19802：Worker 异常退出（没回结果）⇒ 运行记录不能残留「本次运行」
+test('Worker 异常退出：Host 清掉这一趟残留的运行记录', async () => {
+  const { 工厂, 清单 } = 造替身()
+  换线程工厂(工厂)
+  const 项目目录 = 临时目录('停止项目10')
+  const 家 = 建家(项目目录)
+  const 旧 = process.env.BLUEPRINT_TREE_HOME
+  try {
+    process.env.BLUEPRINT_TREE_HOME = 家
+    写运行记录(项目目录, { 上次: '运行', 测试报错: [], 本次运行: 'r5' })
+
+    const 接口 = 建处理器({ log: () => {} })
+    const 请求 = 调接口(接口, { cmd: 'run', 参数: { 项目: '甲', 本次运行: 'r5' } }, 300)
+    await new Promise((收) => setTimeout(收, 30))
+    ;(清单[0] as 假线程).发('exit', 1) // 线程提前退出，没有结果消息
+
+    const 回 = await 请求
+    assert.equal(回.状态, 400, JSON.stringify(回.体))
+    assert.equal((回.体 as { ok?: boolean }).ok, false)
+    assert.equal(读运行记录(项目目录).本次运行, undefined, 'Host 收尾要清掉这一趟的记录')
+    assert.equal(有隔离任务(), false)
   } finally {
     if (旧 === undefined) delete process.env.BLUEPRINT_TREE_HOME
     else process.env.BLUEPRINT_TREE_HOME = 旧
