@@ -14,7 +14,7 @@ import { 改状态 } from './commands/unit-status.ts'
 import { 改单元 } from './commands/unit-update.ts'
 import { 还原方法 } from './commands/method-restore.ts'
 import { 运行方法 } from './commands/run.ts'
-import { 结束运行 } from './commands/end.ts'
+import { 结束运行, 运行状态 } from './commands/end.ts'
 import { 测试单元 } from './commands/test-unit.ts'
 import { 测试蓝图 } from './commands/test-blueprint.ts'
 import { 测试全项目 } from './commands/test-project.ts'
@@ -64,6 +64,7 @@ const 全部: 命令定义[] = [
   还原方法,
   运行方法,
   结束运行,
+  运行状态,
   测试单元,
   测试蓝图,
   测试全项目,

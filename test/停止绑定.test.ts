@@ -13,7 +13,7 @@ import path from 'node:path'
 import { 跑隔离, 强杀, 有隔离任务, 换线程工厂, 在跑的项目, 在跑的运行 } from '../src/任务.ts'
 import type { 线程 } from '../src/任务.ts'
 import { 应当停止, 清运行, 读运行记录, 写运行记录 } from '../src/运行记录.ts'
-import { 结束运行 } from '../src/commands/end.ts'
+import { 结束运行, 运行状态 } from '../src/commands/end.ts'
 import { 建处理器 } from '../src/host/index.ts'
 
 /** 直接调 Host 的处理器：假 req（异步迭代出 body）+ 假 res（收 JSON） */
@@ -311,6 +311,36 @@ test('Host 层：stop(A, r1) 不影响正在跑的 r2', async () => {
     assert.equal(读运行记录(项目目录).要求结束, undefined)
 
     // 收尾：真停掉 r2，别把假线程留到其它用例
+    assert.equal(强杀('甲', 'r2'), true)
+    await 在跑
+  } finally {
+    if (旧 === undefined) delete process.env.BLUEPRINT_TREE_HOME
+    else process.env.BLUEPRINT_TREE_HOME = 旧
+    换线程工厂(undefined)
+    fs.rmSync(家, { recursive: true, force: true })
+    fs.rmSync(项目目录, { recursive: true, force: true })
+  }
+})
+
+// ⑤ 调用方能在运行中拿到标识（停止要先问、再带上去核对）
+test('run.status：运行中能查到这一次的标识', async () => {
+  const { 工厂 } = 造替身()
+  换线程工厂(工厂)
+  const 项目目录 = 临时目录('停止项目6')
+  const 家 = 建家(项目目录)
+  const 旧 = process.env.BLUEPRINT_TREE_HOME
+  try {
+    process.env.BLUEPRINT_TREE_HOME = 家
+    写运行记录(项目目录, { 上次: '运行', 测试报错: [], 本次运行: 'r2' })
+    const 在跑 = 跑隔离({ cmd: 'run', 参数: { 项目: '甲', 本次运行: 'r2' } } as never)
+
+    const r = 运行状态.执行({ 项目: '甲' } as never)
+    assert.equal(r.ok, true, JSON.stringify(r))
+    const 数据 = r.数据 as Record<string, unknown>
+    assert.equal(数据.在跑, true)
+    assert.equal(数据.本次运行, 'r2')
+    assert.equal(数据.要求结束, false)
+
     assert.equal(强杀('甲', 'r2'), true)
     await 在跑
   } finally {
