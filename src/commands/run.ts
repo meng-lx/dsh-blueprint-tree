@@ -26,6 +26,7 @@ import { 跑检查, 拦的消息 } from '../跑检查.ts'
 import { 查单元, 查连线, 查锚点, 查子蓝图文件, 查方法, 查规模, 查硬单元, 查循环, 汇总 } from '../校验.ts'
 import { 应当停止, 读运行记录, 写运行记录, 新运行标识, 清运行 } from '../运行记录.ts'
 import type { 测试报错 } from '../运行记录.ts'
+import { 读报错, 清全部报错 } from '../报错.ts'
 import { 写状态, 写蓝图状态 } from '../状态写入.ts'
 import { 同步方法文件 } from '../方法同步.ts'
 import { 算同步性, 算上层, 结束标记, 找环, 环形修正 } from '../蓝图工具.ts'
@@ -101,6 +102,26 @@ export const 运行方法: 命令定义 = {
       const 改了 = 写蓝图状态(项目目录, 配置, 名, 表)
       落地.push(...改了)
     }
+    // ②.5 拓扑检查留下的「报错」是单独存的（用户 m19933）：
+    //   「点运行,运行前把所有报错单元标失效…运行不负责检测」
+    //   ⇒ 这里只读 `报错.json` 翻成「失效」，不重算任何东西；翻完就删，避免下次重复落。
+    const 临时报错 = 读报错(项目目录)
+    if (Object.keys(临时报错).length) {
+      for (const [图名, 表] of Object.entries(临时报错)) {
+        const 图 = 读蓝图(图名)
+        if (!图) continue
+        const 落: Record<string, string> = {}
+        for (const 单元名 of Object.keys(表)) {
+          const u = 图.单元.find((x) => x.名 === 单元名)
+          if (!u) continue
+          if (u.状态 === '废弃' || u.状态 === '失效') continue
+          落[单元名] = '失效'
+        }
+        if (Object.keys(落).length) 落地.push(...写蓝图状态(项目目录, 配置, 图名, 落))
+      }
+      清全部报错(项目目录)
+    }
+
     // 兼容旧记录：上次是「测试」且写了 测试报错（老版本靠这份记录落地），也一并落
     const 记录 = 读运行记录(项目目录)
     if (记录.上次 === '测试' && 记录.测试报错.length) {
