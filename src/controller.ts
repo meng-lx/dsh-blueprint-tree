@@ -87,7 +87,14 @@ export async function 执行(指令: 指令): Promise<结果> {
   // ①.5 界面自检命令（page.*）：刷新没有业务语义，不进蓝图链路，直接走 TS。
   //     否则「刷新」也得在链路里占一格，测试和校验会跟着变。
   //     method.brief 同理：只把上下文念给 AI 听（读文件 + 类型推断），不写业务。
-  if (String(命令.名).startsWith('page.') || String(命令.名) === 'method.brief') {
+  //     run.status / run.stop 也直走 TS：它们读的是 Host 进程里的任务状态
+  //     （用户 m19722：走蓝图会报「蓝图里没有认领 run.status」，而且链路也看不到 Worker）。
+  const 直走 =
+    String(命令.名).startsWith('page.') ||
+    String(命令.名) === 'method.brief' ||
+    String(命令.名) === 'run.status' ||
+    String(命令.名) === 'run.stop'
+  if (直走) {
     try {
       return await 命令.执行(参数)
     } catch (e) {

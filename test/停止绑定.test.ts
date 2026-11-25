@@ -351,3 +351,88 @@ test('run.status：运行中能查到这一次的标识', async () => {
     fs.rmSync(项目目录, { recursive: true, force: true })
   }
 })
+
+// ⑥ 用户 m19722：真停到了就直说「已停止」+ 标识，不能再读那份刚清过的记录
+test('Host 层：核对得上就回「已停止」，不误报「没有在跑」', async () => {
+  const { 工厂 } = 造替身()
+  换线程工厂(工厂)
+  const 项目目录 = 临时目录('停止项目7')
+  const 家 = 建家(项目目录)
+  const 旧 = process.env.BLUEPRINT_TREE_HOME
+  try {
+    process.env.BLUEPRINT_TREE_HOME = 家
+    写运行记录(项目目录, { 上次: '运行', 测试报错: [], 本次运行: 'r1' })
+    const 在跑 = 跑隔离({ cmd: 'run', 参数: { 项目: '甲', 本次运行: 'r1' } } as never)
+
+    const 回 = await 调接口(建处理器({ log: () => {} }), { cmd: 'run.stop', 参数: { 项目: '甲', 本次运行: 'r1' } })
+    assert.equal(回.状态, 200, JSON.stringify(回.体))
+    const 数据 = (回.体 as { 数据?: Record<string, unknown> }).数据 ?? {}
+    assert.equal(数据.已停止, true, '停到了就说停到了')
+    assert.equal(数据.本次运行, 'r1')
+    assert.equal(数据.要求结束, true)
+    assert.notEqual(数据.提示, '这个项目现在没有在跑，没有可停的运行', '不能被清理后的记录带偏')
+
+    const 终 = await 在跑
+    assert.equal(终.错误?.类型, '中止', JSON.stringify(终))
+    assert.equal(有隔离任务(), false)
+    assert.equal(读运行记录(项目目录).本次运行, undefined, '强停收尾清掉自己那一次')
+  } finally {
+    if (旧 === undefined) delete process.env.BLUEPRINT_TREE_HOME
+    else process.env.BLUEPRINT_TREE_HOME = 旧
+    换线程工厂(undefined)
+    fs.rmSync(家, { recursive: true, force: true })
+    fs.rmSync(项目目录, { recursive: true, force: true })
+  }
+})
+
+// ⑦ 端到端：页面拿到标识 → 停掉原来那趟并收到「已停止」→ 同一请求晚到不影响下一次运行
+test('端到端：停掉自己那趟，迟到的同一请求不影响下一趟', async () => {
+  const { 工厂, 清单 } = 造替身()
+  换线程工厂(工厂)
+  const 项目目录 = 临时目录('停止项目8')
+  const 家 = 建家(项目目录)
+  const 旧 = process.env.BLUEPRINT_TREE_HOME
+  try {
+    process.env.BLUEPRINT_TREE_HOME = 家
+    const 接口 = 建处理器({ log: () => {} })
+
+    // ① 第一趟：页面启动时带上自己的标识（Host 原样用）
+    const r1 = '甲#页面1'
+    写运行记录(项目目录, { 上次: '运行', 测试报错: [], 本次运行: r1 })
+    const 第一趟 = 跑隔离({ cmd: 'run', 参数: { 项目: '甲', 本次运行: r1 } } as never)
+    assert.equal(在跑的运行(), r1)
+
+    // ② 停止：带同一个标识 ⇒ 已停止
+    const 停1 = await 调接口(接口, { cmd: 'run.stop', 参数: { 项目: '甲', 本次运行: r1 } })
+    assert.equal(停1.状态, 200, JSON.stringify(停1.体))
+    assert.equal((停1.体 as { 数据?: Record<string, unknown> }).数据?.已停止, true)
+    assert.equal((await 第一趟).错误?.类型, '中止')
+
+    // ③ 第二趟紧接着开跑
+    const r2 = '甲#页面2'
+    写运行记录(项目目录, { 上次: '运行', 测试报错: [], 本次运行: r2 })
+    const 第二趟 = 跑隔离({ cmd: 'run', 参数: { 项目: '甲', 本次运行: r2 } } as never)
+    assert.equal(在跑的运行(), r2)
+
+    // ④ 同一请求晚到（还带着 r1）⇒ 不许动 r2
+    const 停2 = await 调接口(接口, { cmd: 'run.stop', 参数: { 项目: '甲', 本次运行: r1 } })
+    assert.equal(停2.状态, 200, JSON.stringify(停2.体))
+    const 数据2 = (停2.体 as { 数据?: Record<string, unknown> }).数据 ?? {}
+    assert.notEqual(数据2.已停止, true, '旧请求不能宣称停掉了东西')
+    assert.equal(有隔离任务(), true, 'r2 还得在跑')
+    assert.equal(在跑的运行(), r2)
+    assert.equal(读运行记录(项目目录).本次运行, r2)
+    assert.equal(读运行记录(项目目录).要求结束, undefined)
+
+    // ⑤ 收尾：真停 r2
+    assert.equal(强杀('甲', r2), true)
+    await 第二趟
+    assert.equal(清单.length, 2)
+  } finally {
+    if (旧 === undefined) delete process.env.BLUEPRINT_TREE_HOME
+    else process.env.BLUEPRINT_TREE_HOME = 旧
+    换线程工厂(undefined)
+    fs.rmSync(家, { recursive: true, force: true })
+    fs.rmSync(项目目录, { recursive: true, force: true })
+  }
+})

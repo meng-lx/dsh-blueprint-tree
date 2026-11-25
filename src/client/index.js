@@ -1149,6 +1149,9 @@ window.__ModuleLoader__.load({
         var _结果 = useState(null)
         var 结果 = _结果[0]
         var 设结果 = _结果[1]
+        // 用户 m19722：页面要记住「自己启动、准备停止的那一次运行」的标识。
+        // 停止时一起发出去，Host 才能核对「是不是这一趟」；不知道就别停。
+        var 运行标识 = useRef('')
 
         var _锚 = useState(null)
         var 锚 = _锚[0]
@@ -1989,6 +1992,21 @@ window.__ModuleLoader__.load({
           return 行.join('\n') + '\n\n' + 截断(串(d))
         }
 
+        // 用户 m19722：一次运行一个标识。页面自己生成、自己记住，停止时原样发回去。
+        // 不能「点停止那一刻再查谁在跑」—— 如果旧的一趟已经换成新的一趟，查到的
+        // 恰好就是不该停的那次。
+        function 新运行标识() {
+          return String(props.项目) + '#' + Date.now().toString(36) + '#' + Math.random().toString(36).slice(2, 8)
+        }
+        function 要标识(命令) {
+          var 名 = String(命令 || '')
+          return 名 === 'run' || 名.indexOf('test.') === 0
+        }
+        // 这一趟结束了就把标识丢掉（只丢自己的，别把新的一趟的抹掉）
+        function 忘标识(号) {
+          if (号 && 运行标识.current === 号) 运行标识.current = ''
+        }
+
         // 统一入口：设「跑中」→ 调命令 → 弹结果
         // 用户 m14135：测试/运行结束后自动刷一次画布 —— 命令返回时状态已经落盘，
         // 前端只按返回时机重读图，不用改后端。
@@ -1996,13 +2014,22 @@ window.__ModuleLoader__.load({
           if (跑中) return null
           设跑中(标题)
           设结果(null)
-          return 调(命令, 参数)
+          var 号 = ''
+          var 实参 = 参数
+          if (要标识(命令)) {
+            号 = 新运行标识()
+            运行标识.current = 号
+            实参 = Object.assign({}, 参数, { 本次运行: 号 })
+          }
+          return 调(命令, 实参)
             .then(function (r) {
+              忘标识(号)
               设跑中('')
               设结果({ 标题: 标题, 文字: 概括结果(标题, r) })
               重读图()
             })
             .catch(function (e) {
+              忘标识(号)
               设跑中('')
               设结果({ 标题: 标题, 文字: 标题 + '\n✗ ' + (e && e.message ? e.message : String(e)) })
               重读图()
@@ -2036,9 +2063,13 @@ window.__ModuleLoader__.load({
                 var 名 = 名们[序]
                 序 += 1
                 设跑中('测试 ' + 名 + '（' + 序 + '/' + 名们.length + '）')
-                return 调('test.unit', { 项目: props.项目, 蓝图: 当前图, 单元: 名, 次数: 次 })
+                // 用户 m19722：单元测试也是隔离任务，停止按钮要停得掉 —— 同样带标识。
+                var 号 = 新运行标识()
+                运行标识.current = 号
+                return 调('test.unit', { 项目: props.项目, 蓝图: 当前图, 单元: 名, 次数: 次, 本次运行: 号 })
                   .then(function (r) { 行们.push(概括结果('单元「' + 名 + '」', r)) })
                   .catch(function (e) { 行们.push('单元「' + 名 + '」\n✗ ' + (e && e.message ? e.message : String(e))) })
+                  .then(function () { 忘标识(号) })
                   .then(跑下一个)
               }
               跑下一个()
@@ -2176,8 +2207,22 @@ window.__ModuleLoader__.load({
                     }),
                     onClick: function (e) {
                       e.stopPropagation()
-                      调('run.stop', { 项目: props.项目 }).then(function (r) {
-                        设提示(r && r.ok ? '已发送终止请求，跑到下一个单元边界就停' : '终止失败：' + ((r && r.错误 && r.错误.消息) || '未知原因'))
+                      // 用户 m19722：只说得出「停哪个项目」还不够 —— 必须带自己那一趟的
+                      // 标识。没有标识就不发请求，免得把别人（或后来的一趟）停掉。
+                      var 号 = 运行标识.current
+                      if (!号) {
+                        设提示('还不知道是哪一次运行（页面没启动过它，或者它已经结束了），先不要停')
+                        return
+                      }
+                      调('run.stop', { 项目: props.项目, 本次运行: 号 }).then(function (r) {
+                        var 数据 = (r && r.数据) || {}
+                        if (r && r.ok && 数据.已停止) {
+                          设提示('已停止：' + String(数据.本次运行 || 号))
+                        } else if (r && r.ok) {
+                          设提示(数据.提示 || '已发送终止请求，跑到下一个单元边界就停')
+                        } else {
+                          设提示('终止失败：' + ((r && r.错误 && r.错误.消息) || '未知原因'))
+                        }
                       })
                     },
                   },
