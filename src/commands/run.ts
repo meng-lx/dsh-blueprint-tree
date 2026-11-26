@@ -26,7 +26,7 @@ import { 跑检查, 拦的消息 } from '../跑检查.ts'
 import { 查单元, 查连线, 查锚点, 查子蓝图文件, 查方法, 查规模, 查硬单元, 查循环, 汇总 } from '../校验.ts'
 import { 应当停止, 读运行记录, 写运行记录, 新运行标识, 清运行 } from '../运行记录.ts'
 import type { 测试报错 } from '../运行记录.ts'
-import { 读报错, 清全部报错 } from '../报错.ts'
+import { 读报错, 清全部报错, 算连不上, 图指纹 } from '../报错.ts'
 import { 写状态, 写蓝图状态 } from '../状态写入.ts'
 import { 同步方法文件 } from '../方法同步.ts'
 import { 算同步性, 算上层, 结束标记, 找环, 环形修正 } from '../蓝图工具.ts'
@@ -93,6 +93,9 @@ export const 运行方法: 命令定义 = {
     // ② 用户 m13658：「运行时报错改失效」—— 跑之前把上一次留下的「报错」单元落到「失效」
     //    （测试失败会把单元标成报错，运行开始时才是它变成失效的时机）
     const 落地: string[] = []
+    const 过期: string[] = []
+    // 图级结论（例如「整张图没有任何出口」）：没有单元位置，但必须报出来（用户 m20352）
+    const 主图级: string[] = []
     for (const 名 of 蓝图名们()) {
       const 图 = 读蓝图(名)
       if (!图) continue
@@ -105,22 +108,52 @@ export const 运行方法: 命令定义 = {
     // ②.5 拓扑检查留下的「报错」是单独存的（用户 m19933）：
     //   「点运行,运行前把所有报错单元标失效…运行不负责检测」
     //   ⇒ 这里只读 `报错.json` 翻成「失效」，不重算任何东西；翻完就删，避免下次重复落。
+    //
+    // 用户 m20352 验收又补了两条：
+    //   ① 标记要绑版本 —— 拓扑改过之后，旧标记会误伤已经接回去的单元；
+    //      只有指纹与当前图一致才认。
+    //   ② 从没看过图的断路单元也要落 —— 那种图在 `报错.json` 里根本没有段，
+    //      这里补算一次（一次遍历，不是每个单元都查）。
     const 临时报错 = 读报错(项目目录)
-    if (Object.keys(临时报错).length) {
-      for (const [图名, 表] of Object.entries(临时报错)) {
-        const 图 = 读蓝图(图名)
-        if (!图) continue
-        const 落: Record<string, string> = {}
-        for (const 单元名 of Object.keys(表)) {
-          const u = 图.单元.find((x) => x.名 === 单元名)
-          if (!u) continue
-          if (u.状态 === '废弃' || u.状态 === '失效') continue
-          落[单元名] = '失效'
-        }
-        if (Object.keys(落).length) 落地.push(...写蓝图状态(项目目录, 配置, 图名, 落))
+    const 查过 = new Set<string>()
+    const 主图名 = 主蓝图名
+    for (const [图名, 段] of Object.entries(临时报错)) {
+      const 图 = 读蓝图(图名)
+      if (!图) continue
+      查过.add(图名)
+      if (段.版本 !== 图指纹(图)) {
+        // 拓扑已经变了：这份结论过期，不许拿它改状态
+        过期.push(`${图名}：拓扑改过，跳过 ${Object.keys(段.单元).length} 条旧标记`)
+        continue
       }
-      清全部报错(项目目录)
+      if (图名 === 主图名 && 段.图级.length) 主图级.push(...段.图级)
+      const 落: Record<string, string> = {}
+      for (const 单元名 of Object.keys(段.单元)) {
+        const u = 图.单元.find((x) => x.名 === 单元名)
+        if (!u) continue
+        if (u.状态 === '废弃' || u.状态 === '失效') continue
+        落[单元名] = '失效'
+      }
+      if (Object.keys(落).length) 落地.push(...写蓝图状态(项目目录, 配置, 图名, 落))
     }
+    // 没看过的图：补算一次（用户 m20352：「从未看图的断路单元也不会被落失效」）
+    for (const 名 of 蓝图名们()) {
+      if (查过.has(名)) continue
+      const 图 = 读蓝图(名)
+      if (!图) continue
+      const 结论 = 算连不上(图, 名 !== 主图名)
+      if (名 === 主图名 && 结论.图级.length) 主图级.push(...结论.图级)
+      const 落: Record<string, string> = {}
+      for (const 单元名 of Object.keys(结论.单元)) {
+        const u = 图.单元.find((x) => x.名 === 单元名)
+        if (!u) continue
+        if (u.状态 === '废弃' || u.状态 === '失效') continue
+        落[单元名] = '失效'
+      }
+      if (Object.keys(落).length) 落地.push(...写蓝图状态(项目目录, 配置, 名, 落))
+    }
+    if (Object.keys(临时报错).length) 清全部报错(项目目录)
+    if (主图级.length) return 失败('校验', 主图级.join('；'), 'C6')
 
     // 兼容旧记录：上次是「测试」且写了 测试报错（老版本靠这份记录落地），也一并落
     const 记录 = 读运行记录(项目目录)
@@ -144,7 +177,7 @@ export const 运行方法: 命令定义 = {
       有子蓝图文件: (子名) =>
         fs.existsSync(path.join(项目目录, 产物文件名(配置, 子名).蓝图)),
       读子图: 读蓝图,
-    })
+    }, new Set(['C5', 'C6']))
     if (检查.拦.length) {
       // 检查没通过 ⇒ 一个字节都不写（连「上次是测试」的记录也留着，下次还能落地）
       return 失败('校验', 拦的消息(检查.拦), 检查.拦[0].码)
@@ -842,6 +875,7 @@ const 宿主 = {
       结束信号: 结果.结束信号,
     }
     if (落地.length) 数据.落地 = 落地
+    if (过期.length) 数据.过期 = 过期
     if (改动.length) 数据.改动 = 改动
     // 日志落在项目目录里，返回值只给文件名（跟其它命令一样不给路径）
     const 日志文件 = 写日志(项目目录, 记日志 ? '运行日志.log' : undefined, 日志行)
