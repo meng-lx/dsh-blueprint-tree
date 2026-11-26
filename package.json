@@ -1,7 +1,7 @@
 {
   "name": "dsh-blueprint-tree",
-  "version": "0.1.0",
-  "description": "DeepSeek Harness 的可执行蓝图插件：用子蓝图组织项目，把单元依赖画出来，让 AI 按范围改，让人按图检查。 Executable blueprint workflows for DeepSeek Harness.",
+  "version": "0.1.1",
+  "description": "DeepSeek Harness 的可执行蓝图插件：用子蓝图组织项目，把单元依赖画出来，让 AI 按范围改，让人按图检查。",
   "keywords": [
     "deepseek",
     "harness",
@@ -37,6 +37,7 @@
     "locale/*.json",
     "cordis.patch.yml",
     "README.md",
+    "README.en.md",
     "README.zh.md",
     "LICENSE"
   ],

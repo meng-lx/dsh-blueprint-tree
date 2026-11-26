@@ -1,23 +1,33 @@
-# Blueprint Tree for DeepSeek Harness
+# 蓝图树 · dsh-blueprint-tree
 
-**Give AI a map to work from, and give yourself a map to review.**
+**给 AI 一张工作图，给你一张检查图。**
 
-[中文说明](./README.zh.md)
+[English](https://github.com/meng-lx/dsh-blueprint-tree/blob/main/README.en.md)
 
-Blueprint Tree is a visual workflow plugin for [DeepSeek Harness](https://github.com/deepseek-ai/dsh). Turn recurring workflows into executable diagrams: connect units to show where data comes from and what consumes it next. Organize related steps in nested blueprints to keep the parent flow readable, then open a unit to inspect its description and TypeScript method.
+蓝图树是 [DeepSeek Harness](https://github.com/deepseek-ai/dsh) 的可视化工作流插件。把需要反复运行和修改的流程拆成单元，画出数据从哪里来、处理完交给谁。人和 AI 可以围绕同一张图工作：AI 有明确的改动位置，你也知道该打开哪张图、检查哪几个单元。
 
-For example, draw **Import → Clean → Export**, with **Clean** as a nested blueprint. To change a cleaning rule, open that blueprint and inspect the relevant units. If the fields passed to **Export** change, check the downstream unit too. The diagram gives you a place to start reviewing without reconstructing the workflow from a conversation.
+## 三层看项目
 
-## Get started
+| 视图 | 你能看到什么 |
+| --- | --- |
+| 蓝图树 | 项目分成哪些子流程。每张子蓝图在父图里占一个格，不用把所有内部步骤摊在一起。 |
+| 一张蓝图 | 这一段流程的先后、分支和汇合，以及哪些单元相互依赖。 |
+| 一个单元 | 它负责什么、接收什么、交付什么，以及对应的 TypeScript 方法。 |
 
-1. Install `dsh-blueprint-tree` from the DeepSeek Harness plugin store, then open the **蓝图** (Blueprint) panel.
-2. Create a project, connect a few units, and describe what each one receives and returns. Double-click a nested blueprint to open it.
-3. Open a unit to inspect or edit its method. Use **测试** (Test) on a selected unit before using **项目测试** (Project test) or **运行** (Run) on the whole workflow.
+比如把一条数据处理流程画成 **导入 → 清洗 → 输出**，把「清洗」做成子蓝图。只改清洗规则时，打开清洗子图、检查相关单元；如果改了交给「输出」的字段，就同时核对下游。蓝图让依赖有地方可查，不需要从整段对话里重新拼出流程。
 
-AI method generation uses your configured model and sends the unit description and related blueprint context, such as the names of connected units and upstream descriptions. Review and test generated code before using it with real data.
+## 开始使用
 
-Use Blueprint Tree for workflows you need to run, revisit, and review. Keep Git for code diffs and rollback.
+1. 在 DeepSeek Harness 插件商店搜索 `dsh-blueprint-tree` 并安装。安装后打开「蓝图」面板。
+2. 新建项目，添加单元并连线。给每个单元写清职责、输入和输出；双击子蓝图可以进入内部。
+3. 双击普通单元查看或编辑方法，也可以让 AI 生成方法。用「测试」检查选中的单元，再用「项目测试」或「运行」检查整条流程。
 
-## License
+使用 AI 生成方法会调用配置的模型，并发送单元描述和相关上下文，例如上下游名称、上游说明。生成的代码请先审阅和测试，再用于真实数据。
+
+## 什么时候值得用
+
+适合有明确交接、需要反复运行或审查的流程，例如数据整理、批处理，以及由多个阶段组成的工具。一次性的小任务不必先画图。蓝图用于组织流程和定位审查范围；代码差异和回退仍交给 Git，测试通过也不能替代对关键改动的审查。
+
+## 许可
 
 MIT © 2026 meng-lx
