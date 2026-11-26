@@ -1,42 +1,22 @@
-# dsh-blueprint-tree
+# Blueprint Tree for DeepSeek Harness
 
-**把思维链变成一张能保存、能验证的蓝图。** A workflow plugin for [DeepSeek Harness](https://github.com/deepseek-ai/dsh) that turns a chain of thoughts into a persistent, typed graph.
+**Give AI a map to work from, and give yourself a map to review.**
 
-中文说明见 [README.zh.md](./README.zh.md)。
+[中文说明](./README.zh.md)
 
----
+Blueprint Tree is a visual workflow plugin for [DeepSeek Harness](https://github.com/deepseek-ai/dsh). Turn recurring workflows into executable diagrams: connect units to show where data comes from and what consumes it next. Organize related steps in nested blueprints to keep the parent flow readable, then open a unit to inspect its description and TypeScript method.
 
-## What it is
+For example, draw **Import → Clean → Export**, with **Clean** as a nested blueprint. To change a cleaning rule, open that blueprint and inspect the relevant units. If the fields passed to **Export** change, check the downstream unit too. The diagram gives you a place to start reviewing without reconstructing the workflow from a conversation.
 
-A blueprint is a graph of **units** (nodes) joined by **vectors** (edges), stored as plain JSON, drawn in the plugin panel, and executed by a built-in state machine.
+## Get started
 
-Three layers:
+1. Install `dsh-blueprint-tree` from the DeepSeek Harness plugin store, then open the **蓝图** (Blueprint) panel.
+2. Create a project, connect a few units, and describe what each one receives and returns. Double-click a nested blueprint to open it.
+3. Open a unit to inspect or edit its method. Use **测试** (Test) on a selected unit before using **项目测试** (Project test) or **运行** (Run) on the whole workflow.
 
-| 层 | 内容 | 谁写 |
-| --- | --- | --- |
-| 插件层 | 状态机、共享数据、图算法、检查 | 插件（写死） |
-| 蓝图·子蓝图层 | `flow.json` 与子蓝图 `*.json` | 人 / AI 用命令改 |
-| 方法层 | `*.方法.ts` 里的 TS 正文 | AI 写，插件生成骨架与取数行 |
+AI method generation uses your configured model and sends the unit description and related blueprint context, such as the names of connected units and upstream descriptions. Review and test generated code before using it with real data.
 
-- 单元有类型（开始/结束/软/硬/选择/子蓝图）、标签（强制/广播/并发）和状态（正常/提醒/报错/废弃/失效/断联）。
-- 方法签名统一 `(输入: 上游输入[])`，插件按上游自动生成带类型标注的「取数行」；上游契约一变，下游取数行自动重写并把状态标 `提醒`。
-- 一张图既能由引擎跑（`run` / `test.*`），也能当「思维网」由 AI 自己当状态机走。
-
-## Install
-
-In DSH Desktop:
-
-```bash
-dsh plugin install dsh-blueprint-tree
-```
-
-or install it from the plugin market. After installing, restart DSH Desktop; a **蓝图** tab appears in the panel.
-
-## Quick start
-
-1. 新建项目：任意命令都不带路径，只给项目名（插件内部登记，AI 拿不到绝对路径）。
-2. 建单元、连向量、双击单元编辑描述和方法。
-3. `test.unit` / `test.blueprint` / `test.project` 三种测试，`run` 跑整项目。
+Use Blueprint Tree for workflows you need to run, revisit, and review. Keep Git for code diffs and rollback.
 
 ## License
 

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Blueprint tree",
+    "description": "Turn AI workflows into executable blueprints you can inspect one unit at a time.\n\nUse the parent diagram to see the overall flow, open nested blueprints for the details, and inspect each unit's description and TypeScript method.\n\nAfter installation, open the 蓝图 (Blueprint) panel and create a project. Double-click a nested blueprint to open it. Select a unit and choose 测试 (Test), or use 项目测试 (Project test) or 运行 (Run) for the whole workflow.\n\nAI method generation sends the unit description and related blueprint context to your configured model. Review and test generated code before using it with real data. Disabling the plugin removes access to editing, testing, and running projects from the Blueprint panel."
+  }
+}

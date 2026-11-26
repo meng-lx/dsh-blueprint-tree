@@ -1,7 +1,7 @@
 {
   "name": "dsh-blueprint-tree",
   "version": "0.1.0",
-  "description": "把思维链变成一张能保存、能验证的蓝图：单元 + 向量 + 方法层的 DSH 工作流插件。Graph-as-mindmap workflow plugin for DeepSeek Harness.",
+  "description": "DeepSeek Harness 的可执行蓝图插件：用子蓝图组织项目，把单元依赖画出来，让 AI 按范围改，让人按图检查。 Executable blueprint workflows for DeepSeek Harness.",
   "keywords": [
     "deepseek",
     "harness",
@@ -10,8 +10,7 @@
     "blueprint",
     "workflow",
     "graph",
-    "agent-workflow",
-    "mindmap"
+    "agent-workflow"
   ],
   "license": "MIT",
   "author": "meng-lx <203744120+meng-lx@users.noreply.github.com>",
@@ -29,11 +28,13 @@
   "exports": {
     ".": "./src/host/index.ts",
     "./client": "./src/client/index.js",
+    "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "files": [
     "src",
     "assets/",
+    "locale/*.json",
     "cordis.patch.yml",
     "README.md",
     "README.zh.md",
